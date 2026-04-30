@@ -10,7 +10,7 @@ import {
   setDoc,
   where,
 } from 'firebase/firestore';
-import { generateRoadmap as generateGeminiRoadmap } from '../services/gemini';
+import { generateRoadmap as generateGroqRoadmap } from '../services/groq';
 import { db } from '../services/firebase';
 import { useAuth } from './useAuth';
 
@@ -38,7 +38,7 @@ export function useRoadmap() {
     setError('');
 
     try {
-      const data = await generateGeminiRoadmap(
+      const data = await generateGroqRoadmap(
         input.stream,
         input.skills,
         input.goal,

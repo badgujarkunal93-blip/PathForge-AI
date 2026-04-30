@@ -89,7 +89,7 @@ export default function HomePage() {
             className="max-w-2xl text-center lg:text-left"
           >
             <div className="mb-5 inline-flex rounded-full border border-[rgba(0,212,255,0.22)] bg-[rgba(10,13,20,0.72)] px-4 py-2 text-sm font-bold text-cyan shadow-glow backdrop-blur-md">
-              Powered by Gemini AI
+              Powered by Groq AI
             </div>
             <h1 className="font-heading text-4xl font-bold leading-tight text-textPrimary sm:text-5xl lg:text-6xl">
               Build a career path that feels alive.

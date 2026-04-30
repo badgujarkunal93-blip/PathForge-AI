@@ -26,14 +26,14 @@ function extractLikelyJson(value) {
   return trimmed;
 }
 
-export function parseGeminiJson(value) {
+export function parseAiJson(value, providerName = 'AI') {
   const cleaned = extractLikelyJson(value);
 
   try {
     return JSON.parse(cleaned);
   } catch (error) {
     throw new Error(
-      `Gemini returned a response that was not valid JSON. ${error.message}`
+      `${providerName} returned a response that was not valid JSON. ${error.message}`
     );
   }
 }

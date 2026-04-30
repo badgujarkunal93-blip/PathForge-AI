@@ -1,6 +1,6 @@
 import anime from 'animejs/lib/anime.es.js';
 import { useEffect, useRef, useState } from 'react';
-import { suggestRoles } from '../../services/gemini';
+import { suggestRoles } from '../../services/groq';
 import LoadingSpinner from '../shared/LoadingSpinner';
 
 const demandClasses = {
