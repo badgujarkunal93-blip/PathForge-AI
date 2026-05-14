@@ -1,13 +1,20 @@
 import { parseAiJson } from '../utils/parseResponse';
 
-const API_KEY = import.meta.env.VITE_GROQ_API_KEY;
+const API_KEYS = [
+  import.meta.env.VITE_GROQ_API_KEY,
+  ...(import.meta.env.VITE_GROQ_API_KEYS || '').split(','),
+]
+  .map((key) => key?.trim())
+  .filter(Boolean);
 const MODEL = (import.meta.env.VITE_GROQ_MODEL || 'llama-3.3-70b-versatile').trim();
 const MODEL_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const ROLE_SUGGESTION_LIMIT = 24;
+const RATE_LIMIT_MESSAGE =
+  'Groq is rate limited right now. Wait a few seconds and try again, or use a smaller Groq model / higher billing tier.';
 
 function ensureApiKey() {
-  if (!API_KEY || API_KEY === 'your_key_here') {
-    throw new Error('Add VITE_GROQ_API_KEY to .env to use Groq AI.');
+  if (!API_KEYS.length || API_KEYS.every((key) => key === 'your_key_here')) {
+    throw new Error('Add VITE_GROQ_API_KEY or VITE_GROQ_API_KEYS to .env to use Groq AI.');
   }
 }
 
@@ -29,56 +36,79 @@ function normalizeRoleCategory(category) {
   return 'General';
 }
 
-async function callGroq(prompt) {
+function getGroqErrorMessage(response, message) {
+  if (response.status === 429 || /rate limit|tokens per minute|tpm/i.test(message)) {
+    return RATE_LIMIT_MESSAGE;
+  }
+
+  if (response.status === 404 || response.status === 403) {
+    return `${message} Check VITE_GROQ_MODEL in .env or use a model available to your Groq project.`;
+  }
+
+  return message;
+}
+
+async function callGroq(prompt, { maxCompletionTokens = 2048 } = {}) {
   ensureApiKey();
 
-  const response = await fetch(MODEL_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: 'Return only valid JSON. Do not include markdown or explanations.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-      temperature: 0.7,
-      top_p: 0.95,
-      max_completion_tokens: 8192,
-      response_format: { type: 'json_object' },
-    }),
-  });
+  let lastError = null;
 
-  if (!response.ok) {
-    let message = `Groq request failed with status ${response.status}.`;
-    try {
-      const errorData = await response.json();
-      message = errorData?.error?.message || message;
-    } catch {
-      message = response.statusText || message;
+  for (const apiKey of API_KEYS) {
+    const response = await fetch(MODEL_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: 'Return only valid JSON. Do not include markdown or explanations.',
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        temperature: 0.7,
+        top_p: 0.95,
+        max_completion_tokens: maxCompletionTokens,
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    if (!response.ok) {
+      let message = `Groq request failed with status ${response.status}.`;
+      try {
+        const errorData = await response.json();
+        message = errorData?.error?.message || message;
+      } catch {
+        message = response.statusText || message;
+      }
+
+      lastError = new Error(getGroqErrorMessage(response, message));
+
+      if (response.status === 429 || response.status >= 500) {
+        continue;
+      }
+
+      throw lastError;
     }
-    if (response.status === 404 || response.status === 403) {
-      message = `${message} Check VITE_GROQ_MODEL in .env or use a model available to your Groq project.`;
+
+    const data = await response.json();
+    const text = data?.choices?.[0]?.message?.content;
+
+    if (!text) {
+      lastError = new Error('Groq did not return any text content.');
+      continue;
     }
-    throw new Error(message);
+
+    return parseAiJson(text, 'Groq');
   }
 
-  const data = await response.json();
-  const text = data?.choices?.[0]?.message?.content;
-
-  if (!text) {
-    throw new Error('Groq did not return any text content.');
-  }
-
-  return parseAiJson(text, 'Groq');
+  throw lastError || new Error('Groq request failed.');
 }
 
 export async function suggestRoles(stream, skills) {
@@ -86,7 +116,7 @@ export async function suggestRoles(stream, skills) {
     ', '
   )}. Suggest exactly ${ROLE_SUGGESTION_LIMIT} realistic career roles. Include a balanced mix: common beginner-friendly roles, general high-demand roles, specialized roles, creative cross-domain roles, and unique future-facing roles. Avoid duplicates and make every role practical for the user's stream and skills. Keep descriptions under 18 words. Return ONLY a valid JSON object, no markdown, no explanation: {"roles": [{role: string, description: string, demandLevel: 'High'|'Medium'|'Low', category: 'General'|'Specialized'|'Unique'}]}`;
 
-  const parsed = await callGroq(prompt);
+  const parsed = await callGroq(prompt, { maxCompletionTokens: 1600 });
   const roles = Array.isArray(parsed) ? parsed : parsed?.roles;
 
   if (!Array.isArray(roles)) {
@@ -106,7 +136,7 @@ export async function generateRoadmap(stream, skills, goal, duration, level) {
     ', '
   )} and wants to become a ${goal} in ${duration}. Return ONLY valid JSON, no markdown, no explanation: {phases: [{title: string, duration: string, milestones: [string], resources: [{name: string, url: string}], youtubeSearchQueries: [string]}]}`;
 
-  const parsed = await callGroq(prompt);
+  const parsed = await callGroq(prompt, { maxCompletionTokens: 3500 });
 
   const phases = Array.isArray(parsed) ? parsed : parsed?.phases;
 
